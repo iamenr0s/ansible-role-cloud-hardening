@@ -1,0 +1,14 @@
+---
+- name: Converge (remediate)
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Remediate
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../.."  # noqa: role-name[path]
+      vars:
+        linux_hardening_mode: remediate
+        linux_hardening_confirm_remediation: true
+        linux_hardening_cloud_provider: aws
+        linux_hardening_cloud_imds_url: http://127.0.0.1:18080

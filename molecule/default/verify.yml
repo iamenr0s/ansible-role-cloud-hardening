@@ -1,0 +1,110 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Read the drop-in
+      ansible.builtin.slurp:
+        src: /etc/cloud/cloud.cfg.d/99-linux-hardening.cfg
+      register: __drop
+
+    - name: The drop-in sets all three keys
+      ansible.builtin.assert:
+        that:
+          - "'ssh_pwauth: false' in (__drop.content | b64decode)"
+          - "'disable_root: true' in (__drop.content | b64decode)"
+          - "'ssh_deletekeys: true' in (__drop.content | b64decode)"
+        quiet: true
+
+    - name: Ask cloud-init whether the drop-in is valid
+      ansible.builtin.command: cloud-init schema --config-file /etc/cloud/cloud.cfg.d/99-linux-hardening.cfg
+      register: __schema
+      changed_when: false
+
+    - name: The schema is valid
+      ansible.builtin.assert:
+        that: "'Valid schema' in __schema.stdout + __schema.stderr"
+        quiet: true
+
+    - name: Read the weak file the role must not rewrite
+      ansible.builtin.slurp:
+        src: /etc/cloud/cloud.cfg.d/10-weak.cfg
+      register: __weak
+
+    - name: Other cloud-init files were left alone
+      ansible.builtin.assert:
+        that: "'ssh_pwauth: \"yes\"' in (__weak.content | b64decode)"
+        quiet: true
+
+    - name: Stat the stored user-data
+      ansible.builtin.stat:
+        path: "/var/lib/cloud/instances/i-test/{{ item }}"
+      loop: [user-data.txt, user-data.txt.i]
+      register: __ud
+
+    - name: User-data is private now
+      ansible.builtin.assert:
+        that: __ud.results | map(attribute='stat.mode') | unique | list == ['0600']
+        quiet: true
+
+    - name: Audit against the metadata service that still allows IMDSv1
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../.."  # noqa: role-name[path]
+      vars:
+        linux_hardening_mode: audit
+        linux_hardening_fail_on_error: false
+        linux_hardening_cloud_provider: aws
+        linux_hardening_cloud_imds_url: http://127.0.0.1:18080
+
+    - name: Only the metadata finding is left, and it is report-only
+      ansible.builtin.assert:
+        that:
+          - linux_hardening_cloud_findings | map(attribute='key') | list == ['AWS IMDSv2 required']
+          - linux_hardening_cloud_findings | selectattr('fixable') | list | length == 0
+        quiet: true
+
+    - name: Audit against the one that wants tokens
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../.."  # noqa: role-name[path]
+      vars:
+        linux_hardening_mode: audit
+        linux_hardening_fail_on_error: false
+        linux_hardening_cloud_provider: aws
+        linux_hardening_cloud_imds_url: http://127.0.0.1:18081
+
+    - name: Compliant
+      ansible.builtin.assert:
+        that: linux_hardening_cloud_findings == []
+        quiet: true
+
+    - name: Audit when the metadata service cannot be reached
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../.."  # noqa: role-name[path]
+      vars:
+        linux_hardening_mode: audit
+        linux_hardening_fail_on_error: false
+        linux_hardening_cloud_provider: aws
+        linux_hardening_cloud_imds_url: http://127.0.0.1:1
+
+    - name: Unreachable is not a finding
+      ansible.builtin.assert:
+        that: linux_hardening_cloud_findings == []
+        quiet: true
+
+    - name: Remove cloud-init configuration
+      ansible.builtin.file:
+        path: /etc/cloud
+        state: absent
+
+    - name: Audit a machine with neither cloud-init nor a cloud
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../.."  # noqa: role-name[path]
+      vars:
+        linux_hardening_mode: audit
+        linux_hardening_cloud_provider: none
+
+    - name: Nothing to say
+      ansible.builtin.assert:
+        that: linux_hardening_cloud_findings == []
+        quiet: true

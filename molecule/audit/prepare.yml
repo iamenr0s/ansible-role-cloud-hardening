@@ -1,0 +1,29 @@
+---
+- name: Prepare weak cloud-init settings
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Create the cloud-init directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop: [/etc/cloud/cloud.cfg.d, /var/lib/cloud/instances/i-test]
+
+    - name: Weak cloud-init settings
+      ansible.builtin.copy:
+        dest: /etc/cloud/cloud.cfg
+        force: false
+        mode: '0644'
+        content: |
+          #cloud-config
+          ssh_pwauth: true
+          disable_root: false
+          ssh_deletekeys: false
+
+    - name: Stored user-data readable by everyone
+      ansible.builtin.copy:
+        dest: /var/lib/cloud/instances/i-test/user-data.txt
+        mode: '0644'
+        content: "secret\n"

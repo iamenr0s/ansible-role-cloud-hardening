@@ -1,0 +1,30 @@
+---
+# Read-only: it reports the weak settings and changes nothing.
+- name: Converge (audit only)
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Audit
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../.."  # noqa: role-name[path]
+      vars:
+        linux_hardening_mode: audit
+        linux_hardening_fail_on_error: false
+    - name: All four deviations are reported as fixable
+      ansible.builtin.assert:
+        that:
+          - linux_hardening_cloud_findings | map(attribute='key') | sort | list == ['cloud-init disable_root', 'cloud-init ssh_deletekeys', 'cloud-init ssh_pwauth', 'cloud-init stored user-data']
+          - linux_hardening_cloud_findings | selectattr('fixable') | list | length == 4
+        quiet: true
+    - name: Look for changes
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: [/etc/cloud/cloud.cfg.d/99-linux-hardening.cfg, /var/lib/cloud/instances/i-test/user-data.txt]
+      register: __s
+    - name: Nothing was written
+      ansible.builtin.assert:
+        that:
+          - not __s.results[0].stat.exists
+          - __s.results[1].stat.mode == '0644'
+        quiet: true

@@ -1,0 +1,49 @@
+---
+- name: Gather cloud state
+  ansible.builtin.include_tasks: facts.yml
+
+- name: Compare with desired state
+  ansible.builtin.set_fact:
+    __lh_cloud_findings: >-
+      {%- set out = [] -%}
+      {%- for d in __lh_cloud_ci_bad -%}
+      {%- set _ = out.append({'key': 'cloud-init ' ~ d.key, 'expected': d.expected ~ ' (or unset)',
+                              'actual': d.actual, 'fixable': true}) -%}
+      {%- endfor -%}
+      {%- if __lh_cloud_ud_bad | length > 0 -%}
+      {%- set _ = out.append({'key': 'cloud-init stored user-data', 'expected': 'not readable by group or others (it often holds secrets)',
+                              'actual': __lh_cloud_ud_bad | join(', '), 'fixable': true}) -%}
+      {%- endif -%}
+      {%- if __lh_cloud_provider == 'aws' and (__lh_cloud_imds.status | default(-1)) == 200 -%}
+      {%- set _ = out.append({'key': 'AWS IMDSv2 required', 'expected': 'a request without a token is refused (HTTP 401)',
+                              'actual': 'answered without a token (IMDSv1 enabled; reported only: aws ec2 modify-instance-metadata-options --http-tokens required)',
+                              'fixable': false}) -%}
+      {%- endif -%}
+      {{ out | to_json }}
+
+- name: Record findings
+  ansible.builtin.set_fact:
+    linux_hardening_cloud_findings: "{{ __lh_cloud_findings | from_json }}"
+
+- name: Say what was not checked
+  ansible.builtin.debug:
+    msg: >-
+      cloud_hardening found no cloud-init ({{ __linux_hardening_cloud_cfg }}) and no AWS metadata
+      (provider: {{ __lh_cloud_provider }}): nothing to check.
+  when: not __lh_cloud_ci and __lh_cloud_provider != 'aws'
+
+- name: Report cloud_hardening result
+  ansible.builtin.debug:
+    msg: "{{ 'COMPLIANT' if linux_hardening_cloud_findings | length == 0 else linux_hardening_cloud_findings }}"
+
+# After remediation only fixable findings fail the run.
+- name: Fail on findings
+  ansible.builtin.fail:
+    msg: "cloud_hardening found {{ __lh_cloud_blocking | length }} deviation(s)."
+  vars:
+    __lh_cloud_blocking: >-
+      {{ linux_hardening_cloud_findings
+         if (linux_hardening_fail_on_error | bool) and not (__lh_cloud_audit_fatal | default(false))
+         else linux_hardening_cloud_findings | selectattr('fixable') | list
+         if (__lh_cloud_audit_fatal | default(false)) else [] }}
+  when: __lh_cloud_blocking | length > 0

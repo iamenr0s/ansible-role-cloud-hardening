@@ -1,0 +1,12 @@
+---
+__linux_hardening_cloud_cfg: /etc/cloud/cloud.cfg
+__linux_hardening_cloud_cfg_d: /etc/cloud/cloud.cfg.d
+__linux_hardening_cloud_dropin: /etc/cloud/cloud.cfg.d/99-linux-hardening.cfg
+__linux_hardening_cloud_instances: /var/lib/cloud/instances
+
+# cloud-init reads these as plain YAML scalars; only an explicit bad value is a finding, an unset key is
+# left alone (cloud-init then does not touch sshd, and disable_root/ssh_deletekeys default to the safe value).
+__linux_hardening_cloud_init_keys:
+  - {key: ssh_pwauth, want: 'false', bad: ['true', 'yes', 'on', '1']}
+  - {key: disable_root, want: 'true', bad: ['false', 'no', 'off', '0']}
+  - {key: ssh_deletekeys, want: 'true', bad: ['false', 'no', 'off', '0']}

@@ -1,0 +1,35 @@
+---
+# audit: read-only (one HTTP GET to the metadata service on AWS). remediate: a cloud-init drop-in and user-data permissions.
+# The AWS metadata options live in the EC2 API, not on the machine, so that finding is always report-only.
+- name: Run cloud_hardening
+  when: linux_hardening_cloud_enabled | bool
+  block:
+    - name: Validate linux_hardening_mode
+      ansible.builtin.assert:
+        that: linux_hardening_mode in ['audit', 'remediate']
+        fail_msg: "linux_hardening_mode must be 'audit' or 'remediate', got '{{ linux_hardening_mode }}'"
+        quiet: true
+
+    - name: Audit (read-only)
+      ansible.builtin.include_tasks: audit.yml
+      when: linux_hardening_mode == 'audit'
+
+    - name: Remediate
+      when: linux_hardening_mode == 'remediate'
+      block:
+        - name: Require explicit remediation confirmation
+          ansible.builtin.assert:
+            that: linux_hardening_confirm_remediation | bool
+            fail_msg: >-
+              Remediation writes a cloud-init drop-in and tightens user-data permissions. Set
+              linux_hardening_confirm_remediation: true to proceed (run with linux_hardening_mode: audit to preview).
+            quiet: true
+
+        - name: Configure
+          ansible.builtin.include_tasks: configure.yml
+
+        - name: Verify effective configuration
+          ansible.builtin.include_tasks: audit.yml
+          vars:
+            __lh_cloud_audit_fatal: true
+          when: linux_hardening_verify | bool

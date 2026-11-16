@@ -1,0 +1,17 @@
+---
+# --- Shared collection variables ---
+linux_hardening_mode: audit                    # audit (read-only) | remediate
+linux_hardening_confirm_remediation: false     # must be true for any change
+linux_hardening_backup: true
+linux_hardening_verify: true
+linux_hardening_fail_on_error: true
+
+# --- cloud_hardening (cloud-init configuration and AWS instance metadata; deliberately small) ---
+linux_hardening_cloud_enabled: true
+
+# auto: AWS is recognised from the DMI vendor/BIOS strings; anything else is treated as "none".
+# Set aws to force the metadata check, none to skip it.
+linux_hardening_cloud_provider: auto
+
+# Where the metadata service is asked. Only changed in tests.
+linux_hardening_cloud_imds_url: http://169.254.169.254

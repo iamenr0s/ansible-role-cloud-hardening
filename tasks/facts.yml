@@ -1,0 +1,66 @@
+---
+- name: Look for cloud-init
+  ansible.builtin.stat:
+    path: "{{ __linux_hardening_cloud_cfg }}"
+  register: __lh_cloud_cfg
+
+- name: List cloud-init configuration drop-ins
+  ansible.builtin.find:
+    paths: "{{ __linux_hardening_cloud_cfg_d }}"
+    patterns: '*.cfg'
+  register: __lh_cloud_dropins
+  when: __lh_cloud_cfg.stat.exists
+
+# cloud-init merges cloud.cfg and then the drop-ins in name order, so the last assignment of a key wins.
+- name: Read cloud-init configuration
+  ansible.builtin.slurp:
+    src: "{{ item }}"
+  loop: "{{ [__linux_hardening_cloud_cfg] + (__lh_cloud_dropins.files | default([]) | map(attribute='path') | sort | list) }}"
+  register: __lh_cloud_files
+  when: __lh_cloud_cfg.stat.exists
+
+- name: Find the effective cloud-init values that deviate
+  ansible.builtin.set_fact:
+    __lh_cloud_ci_json: >-
+      {%- set text = __lh_cloud_files.results | default([]) | selectattr('content', 'defined') | map(attribute='content') | map('b64decode') | join('\n') -%}
+      {%- set out = [] -%}
+      {%- for k in __linux_hardening_cloud_init_keys -%}
+      {%- set m = text | regex_findall('(?m)^' ~ k.key ~ ':[ ]*([^ #\r\n]+)') -%}
+      {%- set v = (m | last | trim | replace('"', '') | replace("'", '') | lower) if m else '' -%}
+      {%- if v in k.bad -%}
+      {%- set _ = out.append({'key': k.key, 'expected': k.want, 'actual': v}) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ out | to_json }}
+
+- name: Find stored user-data
+  ansible.builtin.find:
+    paths: "{{ __linux_hardening_cloud_instances }}"
+    patterns: 'user-data*'
+    recurse: true
+    file_type: file
+  register: __lh_cloud_userdata
+  when: __lh_cloud_cfg.stat.exists
+
+- name: Work out provider, deviations and open files
+  ansible.builtin.set_fact:
+    __lh_cloud_ci: "{{ __lh_cloud_cfg.stat.exists }}"
+    __lh_cloud_ci_bad: "{{ __lh_cloud_ci_json | from_json }}"
+    __lh_cloud_ud_bad: "{{ __lh_cloud_userdata.files | default([]) | rejectattr('mode', 'search', '00$') | map(attribute='path') | list }}"
+    __lh_cloud_provider: >-
+      {{ linux_hardening_cloud_provider if linux_hardening_cloud_provider != 'auto'
+         else 'aws' if ('amazon' in (ansible_facts['system_vendor'] | default('') | lower)
+                        or 'amazon' in (ansible_facts['bios_version'] | default('') | lower))
+         else 'none' }}
+
+# A GET without a token: IMDSv2 answers 401, IMDSv1 answers 200. Nothing is changed by it.
+- name: Ask the metadata service without a session token
+  ansible.builtin.uri:
+    url: "{{ linux_hardening_cloud_imds_url }}/latest/meta-data/instance-id"
+    timeout: 2
+    use_proxy: false
+    follow_redirects: none
+  register: __lh_cloud_imds
+  failed_when: false
+  changed_when: false
+  when: __lh_cloud_provider == 'aws'

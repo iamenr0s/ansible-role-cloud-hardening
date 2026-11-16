@@ -1,0 +1,58 @@
+---
+- name: Prepare a machine that looks like a weak cloud image
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    # The real package is only here so the tests can ask cloud-init itself whether the drop-in is valid.
+    - name: Install cloud-init
+      ansible.builtin.package:
+        name: cloud-init
+        state: present
+        update_cache: "{{ true if ansible_facts.os_family == 'Debian' else omit }}"
+
+    - name: Create the cloud-init directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop: [/etc/cloud/cloud.cfg.d, /var/lib/cloud/instances/i-test]
+
+    - name: Make sure the main config exists
+      ansible.builtin.copy:
+        dest: /etc/cloud/cloud.cfg
+        force: false
+        mode: '0644'
+        content: "# stub\n"
+
+    - name: Weak cloud-init settings (quoted, commented and numeric spellings on purpose)
+      ansible.builtin.copy:
+        dest: /etc/cloud/cloud.cfg.d/10-weak.cfg
+        mode: '0644'
+        content: |
+          #cloud-config
+          ssh_pwauth: "yes"
+          disable_root: false # keep root
+          ssh_deletekeys: 0
+
+    - name: Stored user-data, one readable by everyone and one already private
+      ansible.builtin.copy:
+        dest: "/var/lib/cloud/instances/i-test/{{ item.name }}"
+        mode: "{{ item.mode }}"
+        content: "secret\n"
+      loop:
+        - {name: user-data.txt, mode: '0644'}
+        - {name: user-data.txt.i, mode: '0600'}
+
+    - name: Copy the metadata stand-in
+      ansible.builtin.copy:
+        src: imds.py
+        dest: /opt/imds.py
+        mode: '0644'
+
+    - name: Start one that allows IMDSv1 and one that insists on tokens
+      ansible.builtin.command: "setsid -f python3 /opt/imds.py {{ item.port }} {{ item.mode }}"
+      loop:
+        - {port: 18080, mode: v1}
+        - {port: 18081, mode: v2}
+      changed_when: true
