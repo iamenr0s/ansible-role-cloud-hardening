@@ -1,10 +1,10 @@
 ---
-- name: Gather cloud state
+- name: configure | Gather cloud state
   ansible.builtin.include_tasks: facts.yml
 
 # Sorts after the distribution's own files, so it wins. cloud-init applies these per instance, so the running
 # sshd is not touched: it matters for the next instance booted from this machine (an image or a clone).
-- name: Write the cloud-init drop-in
+- name: configure | Write the cloud-init drop-in
   ansible.builtin.copy:
     dest: "{{ __linux_hardening_cloud_dropin }}"
     content: |
@@ -19,7 +19,7 @@
     backup: "{{ linux_hardening_backup | bool }}"
   when: __lh_cloud_ci and __lh_cloud_ci_bad | length > 0
 
-- name: Restrict stored user-data
+- name: configure | Restrict stored user-data
   ansible.builtin.file:
     path: "{{ item }}"
     mode: go-rwx
