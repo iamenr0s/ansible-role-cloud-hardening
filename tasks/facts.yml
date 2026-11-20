@@ -1,10 +1,10 @@
 ---
-- name: Look for cloud-init
+- name: facts | Look for cloud-init
   ansible.builtin.stat:
     path: "{{ __linux_hardening_cloud_cfg }}"
   register: __lh_cloud_cfg
 
-- name: List cloud-init configuration drop-ins
+- name: facts | List cloud-init configuration drop-ins
   ansible.builtin.find:
     paths: "{{ __linux_hardening_cloud_cfg_d }}"
     patterns: '*.cfg'
@@ -12,14 +12,14 @@
   when: __lh_cloud_cfg.stat.exists
 
 # cloud-init merges cloud.cfg and then the drop-ins in name order, so the last assignment of a key wins.
-- name: Read cloud-init configuration
+- name: facts | Read cloud-init configuration
   ansible.builtin.slurp:
     src: "{{ item }}"
   loop: "{{ [__linux_hardening_cloud_cfg] + (__lh_cloud_dropins.files | default([]) | map(attribute='path') | sort | list) }}"
   register: __lh_cloud_files
   when: __lh_cloud_cfg.stat.exists
 
-- name: Find the effective cloud-init values that deviate
+- name: facts | Find the effective cloud-init values that deviate
   ansible.builtin.set_fact:
     __lh_cloud_ci_json: >-
       {%- set text = __lh_cloud_files.results | default([]) | selectattr('content', 'defined') | map(attribute='content') | map('b64decode') | join('\n') -%}
@@ -33,7 +33,7 @@
       {%- endfor -%}
       {{ out | to_json }}
 
-- name: Find stored user-data
+- name: facts | Find stored user-data
   ansible.builtin.find:
     paths: "{{ __linux_hardening_cloud_instances }}"
     patterns: 'user-data*'
@@ -42,7 +42,7 @@
   register: __lh_cloud_userdata
   when: __lh_cloud_cfg.stat.exists
 
-- name: Work out provider, deviations and open files
+- name: facts | Work out provider, deviations and open files
   ansible.builtin.set_fact:
     __lh_cloud_ci: "{{ __lh_cloud_cfg.stat.exists }}"
     __lh_cloud_ci_bad: "{{ __lh_cloud_ci_json | from_json }}"
@@ -54,7 +54,7 @@
          else 'none' }}
 
 # A GET without a token: IMDSv2 answers 401, IMDSv1 answers 200. Nothing is changed by it.
-- name: Ask the metadata service without a session token
+- name: facts | Ask the metadata service without a session token
   ansible.builtin.uri:
     url: "{{ linux_hardening_cloud_imds_url }}/latest/meta-data/instance-id"
     timeout: 2
