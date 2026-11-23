@@ -40,4 +40,4 @@ paste output here
 
 ## Additional context
 
-Anything else that might help (custom `linux_hardening_cloud_*` variables, proxy, air-gapped mirror, etc.).
+Anything else that might help (custom `linux_hardening_cloud_*` variables, etc.).
