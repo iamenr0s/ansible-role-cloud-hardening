@@ -4,11 +4,13 @@
 - name: Run cloud_hardening
   when: linux_hardening_cloud_enabled | bool
   block:
-    - name: Validate linux_hardening_mode
-      ansible.builtin.assert:
-        that: linux_hardening_mode in ['audit', 'remediate']
-        fail_msg: "linux_hardening_mode must be 'audit' or 'remediate', got '{{ linux_hardening_mode }}'"
-        quiet: true
+    # 'auto' detects AWS from DMI data, which only the hardware subset provides.
+    - name: Gather the facts provider detection needs (system_vendor, bios_version)
+      ansible.builtin.setup:
+        gather_subset: [min, hardware]
+      when:
+        - linux_hardening_cloud_provider == 'auto'
+        - ansible_facts['system_vendor'] is not defined
 
     - name: Audit (read-only)
       ansible.builtin.include_tasks: audit.yml
@@ -32,4 +34,5 @@
           ansible.builtin.include_tasks: audit.yml
           vars:
             __lh_cloud_audit_fatal: true
-          when: linux_hardening_verify | bool
+          # In check mode nothing was written, so a re-audit would always fail.
+          when: linux_hardening_verify | bool and not ansible_check_mode

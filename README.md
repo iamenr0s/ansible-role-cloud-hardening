@@ -1,4 +1,4 @@
-[![Molecule](https://github.com/iamenr0s/ansible-role-cloud-hardening/actions/workflows/molecule.yml/badge.svg)](https://github.com/iamenr0s/ansible-role-cloud-hardening/actions/workflows/molecule.yml) ![Ansible Role](https://img.shields.io/ansible/role/d/iamenr0s/ansible_role_cloud_hardening) [![CodeFactor](https://www.codefactor.io/repository/github/iamenr0s/ansible-role-cloud-hardening/badge)](https://www.codefactor.io/repository/github/iamenr0s/ansible-role-cloud-hardening)
+[![Molecule](https://github.com/iamenr0s/ansible-role-cloud-hardening/actions/workflows/molecule.yml/badge.svg)](https://github.com/iamenr0s/ansible-role-cloud-hardening/actions/workflows/molecule.yml) ![Ansible Role](https://img.shields.io/ansible/role/d/iamenr0s/cloud_hardening) [![CodeFactor](https://www.codefactor.io/repository/github/iamenr0s/ansible-role-cloud-hardening/badge)](https://www.codefactor.io/repository/github/iamenr0s/ansible-role-cloud-hardening)
 
 # Ansible Role: Cloud Hardening
 
@@ -29,11 +29,29 @@ Audit-first, deliberately small: two things on a cloud machine that are easy to 
 ## Modes
 `audit` (default) is read-only and sets `linux_hardening_cloud_findings` (`key, expected, actual, fixable`). `remediate` needs `linux_hardening_confirm_remediation: true`; afterwards only fixable findings fail the run, so a still-enabled IMDSv1 is reported but does not fail it.
 
+## Role Variables
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `linux_hardening_mode` | str | `audit` | audit is read-only. Choices: `audit`, `remediate`. |
+| `linux_hardening_confirm_remediation` | bool | `false` | Must be true before remediate changes anything. |
+| `linux_hardening_backup` | bool | `true` | Back up the cloud-init drop-in when it changes. |
+| `linux_hardening_verify` | bool | `true` | Re-audit after remediation. |
+| `linux_hardening_fail_on_error` | bool | `true` | Fail the play when audit finds deviations. |
+| `linux_hardening_cloud_enabled` | bool | `true` | Run the role. |
+| `linux_hardening_cloud_provider` | str | `auto` | Which metadata service to check; auto recognises AWS. Choices: `auto`, `aws`, `none`. |
+| `linux_hardening_cloud_imds_url` | str | `http://169.254.169.254` | Instance metadata endpoint. |
+
+**Idempotent:** yes. A second `remediate` run reports no changes (the Molecule `idempotence` step checks this).
+
+**Check mode:** `remediate` with `--check --diff` shows what would change without writing anything; the post-remediation re-audit is skipped in check mode.
+
 ## Example
 ```yaml
 - hosts: all
+  become: true
   roles:
-    - role: iamenr0s.linux_hardening.cloud_hardening
+    - role: iamenr0s.cloud_hardening
       vars:
         linux_hardening_mode: remediate
         linux_hardening_confirm_remediation: true

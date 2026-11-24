@@ -5,9 +5,10 @@
   gather_facts: true
   tasks:
     # The real package is only here so the tests can ask cloud-init itself whether the drop-in is valid.
+    # jsonschema is optional for cloud-init; without it `cloud-init schema` skips validation.
     - name: Install cloud-init
       ansible.builtin.package:
-        name: cloud-init
+        name: [cloud-init, python3-jsonschema]
         state: present
         update_cache: "{{ true if ansible_facts.os_family == 'Debian' else omit }}"
 
