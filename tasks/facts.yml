@@ -1,10 +1,10 @@
 ---
-- name: Look for cloud-init
+- name: facts | Look for cloud-init
   ansible.builtin.stat:
     path: "{{ __linux_hardening_cloud_cfg }}"
   register: __lh_cloud_cfg
 
-- name: List cloud-init configuration drop-ins
+- name: facts | List cloud-init configuration drop-ins
   ansible.builtin.find:
     paths: "{{ __linux_hardening_cloud_cfg_d }}"
     patterns: '*.cfg'
@@ -12,28 +12,34 @@
   when: __lh_cloud_cfg.stat.exists
 
 # cloud-init merges cloud.cfg and then the drop-ins in name order, so the last assignment of a key wins.
-- name: Read cloud-init configuration
+- name: facts | Read cloud-init configuration
   ansible.builtin.slurp:
     src: "{{ item }}"
   loop: "{{ [__linux_hardening_cloud_cfg] + (__lh_cloud_dropins.files | default([]) | map(attribute='path') | sort | list) }}"
   register: __lh_cloud_files
   when: __lh_cloud_cfg.stat.exists
+  no_log: true  # cloud-init config can hold passwords (chpasswd, datasource credentials)
 
-- name: Find the effective cloud-init values that deviate
+# cloud-init merges cloud.cfg and then the drop-ins in name order, so the last assignment of a key wins: combine does the same.
+- name: facts | Merge the cloud-init configuration
   ansible.builtin.set_fact:
-    __lh_cloud_ci_json: >-
-      {%- set text = __lh_cloud_files.results | default([]) | selectattr('content', 'defined') | map(attribute='content') | map('b64decode') | join('\n') -%}
-      {%- set out = [] -%}
-      {%- for k in __linux_hardening_cloud_init_keys -%}
-      {%- set m = text | regex_findall('(?m)^' ~ k.key ~ ':[ ]*([^ #\r\n]+)') -%}
-      {%- set v = (m | last | trim | replace('"', '') | replace("'", '') | lower) if m else '' -%}
-      {%- if v in k.bad -%}
-      {%- set _ = out.append({'key': k.key, 'expected': k.want, 'actual': v}) -%}
-      {%- endif -%}
-      {%- endfor -%}
-      {{ out | to_json }}
+    __lh_cloud_cfg_merged: >-
+      {{ __lh_cloud_files.results | default([]) | selectattr('content', 'defined') | map(attribute='content')
+         | map('b64decode') | map('from_yaml') | select('mapping') | combine }}
+    __lh_cloud_ci_bad: []
+  no_log: true  # the merged configuration can hold passwords too
 
-- name: Find stored user-data
+- name: facts | Find the effective cloud-init values that deviate
+  ansible.builtin.set_fact:
+    __lh_cloud_ci_bad: "{{ __lh_cloud_ci_bad + [{'key': item.key, 'expected': item.want, 'actual': __lh_cloud_value}] }}"
+  vars:
+    __lh_cloud_value: "{{ __lh_cloud_cfg_merged[item.key] | default('') | string | lower }}"
+  loop: "{{ __linux_hardening_cloud_init_keys }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: __lh_cloud_value in item.bad
+
+- name: facts | Find stored user-data
   ansible.builtin.find:
     paths: "{{ __linux_hardening_cloud_instances }}"
     patterns: 'user-data*'
@@ -42,10 +48,9 @@
   register: __lh_cloud_userdata
   when: __lh_cloud_cfg.stat.exists
 
-- name: Work out provider, deviations and open files
+- name: facts | Work out provider, deviations and open files
   ansible.builtin.set_fact:
     __lh_cloud_ci: "{{ __lh_cloud_cfg.stat.exists }}"
-    __lh_cloud_ci_bad: "{{ __lh_cloud_ci_json | from_json }}"
     __lh_cloud_ud_bad: "{{ __lh_cloud_userdata.files | default([]) | rejectattr('mode', 'search', '00$') | map(attribute='path') | list }}"
     __lh_cloud_provider: >-
       {{ linux_hardening_cloud_provider if linux_hardening_cloud_provider != 'auto'
@@ -54,7 +59,7 @@
          else 'none' }}
 
 # A GET without a token: IMDSv2 answers 401, IMDSv1 answers 200. Nothing is changed by it.
-- name: Ask the metadata service without a session token
+- name: facts | Ask the metadata service without a session token
   ansible.builtin.uri:
     url: "{{ linux_hardening_cloud_imds_url }}/latest/meta-data/instance-id"
     timeout: 2
@@ -63,4 +68,5 @@
   register: __lh_cloud_imds
   failed_when: false
   changed_when: false
+  check_mode: false  # a read-only GET: without it --check reports no IMDSv1 finding
   when: __lh_cloud_provider == 'aws'
