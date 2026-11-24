@@ -21,10 +21,13 @@
       ansible.builtin.command: cloud-init schema --config-file /etc/cloud/cloud.cfg.d/99-linux-hardening.cfg
       register: __schema
       changed_when: false
+      failed_when: false
 
     - name: The schema is valid
       ansible.builtin.assert:
-        that: "'Valid schema' in __schema.stdout + __schema.stderr"
+        # The wording differs between cloud-init versions; the exit code does not.
+        that: __schema.rc == 0
+        fail_msg: "{{ __schema.stdout }} {{ __schema.stderr }}"
         quiet: true
 
     - name: Read the weak file the role must not rewrite
